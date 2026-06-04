@@ -515,7 +515,7 @@ class JiraAPIClient:
             return response.json().get("accountId")
         return None
 
-    def get_all_users(self, max_users: int = 100) -> list[str]:
+    def get_all_users(self, max_users: int = 100, groups: list = None) -> list[str]:
         """Fetch users from the Jira instance.
 
         Returns a list of account IDs.
@@ -526,19 +526,30 @@ class JiraAPIClient:
         self.logger.info("Fetching users from Jira instance...")
 
         users = []
+        batch_users = []
         start_at = 0
 
         while len(users) < max_users:
-            response = self._api_call("GET", "users/search", params={"startAt": start_at, "maxResults": 50})
+            if not groups:
+                response = self._api_call("GET", "users/search", params={"startAt": start_at, "maxResults": 50})
 
-            if not response:
-                break
+                if not response:
+                    break
 
-            batch = response.json()
-            if not batch:
-                break
+                batch = response.json()
+                batch_users = batch.get("values")
 
-            for user in batch:
+            else:
+                for group in groups:
+                    response = self._api_call("GET", "group/member", params={"groupname": group, "maxResults": 50})
+
+                    if not response:
+                        break
+
+                    batch = response.json()
+                    batch_users.extend(batch.get("values"))
+
+            for user in batch_users:
                 account_id = user.get("accountId")
                 # Filter out inactive users and app users
                 if account_id and user.get("active", True) and user.get("accountType") == "atlassian":
