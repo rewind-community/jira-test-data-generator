@@ -16,6 +16,7 @@ A Python tool to generate realistic test data for Jira instances based on produc
 - **Production-Based Multipliers** - Creates realistic data distributions from CSV config
 - **Dynamic Project Creation** - Automatically creates projects based on multipliers
 - **Auto Admin Role** - Automatically grants Project Administrator role for watcher permissions
+- **Group Selection** - Add users from a list of groups instead of entire directory
 - **Easy Cleanup** - All items tagged with searchable labels for easy JQL queries
 - **Size-Based Generation** - Supports Small/Medium/Large/XLarge instance profiles
 - **Dry Run Mode** - Preview what will be created without making changes
@@ -178,6 +179,21 @@ python jira_data_generator.py \
   --resume
 ```
 
+### Limit to specific groups
+
+```bash
+# Resume an interrupted run
+python jira_data_generator.py \
+  --url https://mycompany.atlassian.net \
+  --email your.email@company.com \
+  --prefix GROUPS \
+  --count 100 \
+  --size small \
+  --group test_group_one \
+  --group test_group_two \
+  --resume
+```
+
 ## Command Line Options
 
 | Option | Required | Description | Default |
@@ -189,6 +205,7 @@ python jira_data_generator.py \
 | `--count` | Yes | Number of issues to create | - |
 | `--projects` | No | Override number of projects (issues spread evenly) | Calculated |
 | `--size` | No | Instance size bucket | `small` |
+| `--group` | No | Group to select users from<br>Can be used multiple times | - |
 | `--concurrency` | No | Number of concurrent API requests | `5` |
 | `--request-delay` | No | Delay between requests in seconds (0.05-0.1 recommended) | `0` |
 | `--no-async` | No | Disable async mode (sequential) | `false` |
