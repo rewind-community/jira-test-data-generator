@@ -8,6 +8,9 @@ exclude = [
     "venv",
     "lib",
     "__pycache__",
+    # ruff 0.16+ formats Python code blocks inside Markdown. Keep ruff scoped to
+    # Python sources so prose docs aren't reformatted.
+    "*.md",
 ]
 
 # Target Python 3.9+ (matches project requirements)
