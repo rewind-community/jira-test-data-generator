@@ -15,3 +15,17 @@ updates:
         update-types:
         - "patch"
         - "minor"
+
+  # Maintain Python dependencies (requirements.txt, requirements-dev.txt)
+  #
+  # Intentionally not grouped, unlike the actions above. A single-package bump can be
+  # assessed and merged on its own; a grouped PR always needs someone to unpick which
+  # of N packages changed. Actions are grouped because one logical upgrade (say
+  # setup-python) otherwise fans out into a separate PR per workflow.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "appsec"
+    open-pull-requests-limit: 5

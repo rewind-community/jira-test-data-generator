@@ -7,4 +7,6 @@ responses>=0.25.0
 aioresponses>=0.7.6
 
 # Code quality
-ruff>=0.1.0
+# Pinned to match .github/workflows/lint.yml exactly. A floating ruff means developers
+# format with a different version than CI enforces. Keep these two in sync when bumping.
+ruff==0.16.0
