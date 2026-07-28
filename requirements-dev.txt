@@ -4,7 +4,7 @@ pytest-asyncio>=0.23.0
 pytest-cov>=4.1.0
 pytest-xdist>=3.5.0
 responses>=0.25.0
-aioresponses>=0.7.6
+aioresponses>=0.7.9
 
 # Code quality
 # This pin is the single source of truth for the ruff version: lint.yml installs ruff
