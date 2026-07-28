@@ -18,7 +18,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install ruff
-        run: pip install ruff==0.16.0
+        # Install ruff at the version pinned in requirements-dev.txt, using it as a pip
+        # constraints file. This keeps a single source of truth for the version — CI and
+        # local development cannot drift, and there is no second pin to keep in sync.
+        # Only ruff is installed; the other entries act purely as constraints.
+        run: pip install ruff -c requirements-dev.txt
 
       - name: Run ruff check
         run: ruff check .

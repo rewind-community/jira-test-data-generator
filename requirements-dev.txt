@@ -7,4 +7,7 @@ responses>=0.25.0
 aioresponses>=0.7.6
 
 # Code quality
-ruff>=0.1.0
+# This pin is the single source of truth for the ruff version: lint.yml installs ruff
+# using this file as a pip constraints file, so CI and local development cannot drift.
+# Bump it here and CI follows automatically.
+ruff==0.16.0
