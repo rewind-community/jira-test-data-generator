@@ -148,6 +148,76 @@ class TestJiraDataGeneratorCLI:
 
                     main()
 
+    def test_main_max_users_defaults_when_flag_omitted(self):
+        """Test max_users falls back to a real int, not None, when --max-users is absent.
+
+        A None here reaches get_all_users and raises TypeError on the first
+        comparison, breaking every run that creates watchers.
+        """
+        test_args = [
+            "jira_data_generator.py",
+            "--url",
+            "https://test.atlassian.net",
+            "--email",
+            "test@example.com",
+            "--token",
+            "test-token",
+            "--prefix",
+            "TEST",
+            "--count",
+            "5",
+            "--dry-run",
+            "--no-async",
+            "--no-checkpoint",
+        ]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("jira_data_generator.load_dotenv"):
+                with patch("jira_data_generator.logging.FileHandler", return_value=create_mock_file_handler()):
+                    with patch("jira_data_generator.JiraDataGenerator") as mock_gen:
+                        from jira_data_generator import main
+
+                        main()
+
+        assert mock_gen.call_args.kwargs["max_users"] == 100
+        assert mock_gen.call_args.kwargs["groups"] is None
+
+    def test_main_with_max_users_and_groups(self):
+        """Test --max-users and repeated --group are passed through."""
+        test_args = [
+            "jira_data_generator.py",
+            "--url",
+            "https://test.atlassian.net",
+            "--email",
+            "test@example.com",
+            "--token",
+            "test-token",
+            "--prefix",
+            "TEST",
+            "--count",
+            "5",
+            "--max-users",
+            "7",
+            "--group",
+            "team-a",
+            "--group",
+            "team-b",
+            "--dry-run",
+            "--no-async",
+            "--no-checkpoint",
+        ]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("jira_data_generator.load_dotenv"):
+                with patch("jira_data_generator.logging.FileHandler", return_value=create_mock_file_handler()):
+                    with patch("jira_data_generator.JiraDataGenerator") as mock_gen:
+                        from jira_data_generator import main
+
+                        main()
+
+        assert mock_gen.call_args.kwargs["max_users"] == 7
+        assert mock_gen.call_args.kwargs["groups"] == ["team-a", "team-b"]
+
     def test_main_with_project_override(self):
         """Test main with project override."""
         test_args = [
