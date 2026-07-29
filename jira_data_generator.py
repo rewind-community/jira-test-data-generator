@@ -78,6 +78,8 @@ class JiraDataGenerator:
         request_delay: float = 0.0,
         issues_only: bool = False,
         project_override: Optional[int] = None,
+        max_users: int = 100,
+        groups: list = None
     ):
         self.jira_url = jira_url.rstrip("/")
         self.email = email
@@ -90,6 +92,8 @@ class JiraDataGenerator:
         self.request_delay = request_delay
         self.issues_only = issues_only
         self.project_override = project_override
+        self.max_users = max_users
+        self.groups = groups
 
         self.logger = logging.getLogger(__name__)
 
@@ -720,7 +724,7 @@ class JiraDataGenerator:
             if counts.get("issue_watcher", 0) > 0:
                 self._start_phase("watchers")
                 self.benchmark.start_phase("watchers", counts["issue_watcher"])
-                user_ids = self.project_gen.get_all_users(max_users=100)
+                user_ids = self.project_gen.get_all_users(max_users=self.max_users, groups=self.groups)
                 created = 0
                 if user_ids:
                     for project_key in project_keys:
@@ -839,7 +843,7 @@ class JiraDataGenerator:
             if counts.get("issue_watcher", 0) > 0:
                 self._start_phase("watchers")
                 self.benchmark.start_phase("watchers", counts["issue_watcher"])
-                user_ids = self.project_gen.get_all_users(max_users=100)
+                user_ids = self.project_gen.get_all_users(max_users=self.max_users, groups=self.groups)
                 created = 0
                 if user_ids:
                     for project_key in project_keys:
@@ -1170,6 +1174,8 @@ Checkpointing:
     parser.add_argument("--email", help="Your Jira email or set JIRA_EMAIL in .env")
     parser.add_argument("--token", help="Jira API token (or set JIRA_API_TOKEN in .env file or env var)")
     parser.add_argument("--prefix", required=True, help="Prefix for all created items and project keys (e.g., PERF)")
+    parser.add_argument("--max-users", type=int, help="The nubmer of users to add to each space")
+    parser.add_argument("--group", type=str, action="append",  help="Group to add users from")
     parser.add_argument("--count", type=int, required=True, help="Number of issues to create")
     parser.add_argument(
         "--projects",
@@ -1313,6 +1319,8 @@ Checkpointing:
             request_delay=args.request_delay,
             issues_only=args.issues_only,
             project_override=args.projects,
+            max_users=args.max_users,
+            groups=args.group
         )
 
         if args.no_async:
