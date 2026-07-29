@@ -3,6 +3,7 @@ Unit tests for generators/base.py - JiraAPIClient, RateLimitState, text pool, ra
 """
 
 import asyncio
+import logging
 import time
 from unittest.mock import MagicMock, patch
 
@@ -661,6 +662,43 @@ class TestJiraAPIClientUserMethods:
         users = client.get_all_users(max_users=3)
 
         assert len(users) == 3
+
+    @responses.activate
+    def test_get_all_users_logs_the_count_actually_used(self, base_client_kwargs, caplog):
+        """Test the summary log reports the capped count, not the pre-cap count.
+
+        A page can overshoot max_users, so logging len() before slicing reports
+        a number of users that were never used.
+        """
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/users/search",
+            json=[{"accountId": f"user-{i}", "active": True, "accountType": "atlassian"} for i in range(1, 51)],
+            status=200,
+        )
+
+        caplog.set_level(logging.INFO)
+        client = JiraAPIClient(**base_client_kwargs)
+        client.get_all_users(max_users=3)
+
+        assert "Found 50 users, limiting to 3" in caplog.text
+
+    @responses.activate
+    def test_get_all_users_logs_plain_count_when_not_capped(self, base_client_kwargs, caplog):
+        """Test no misleading limit message when fewer users than max_users exist."""
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/users/search",
+            json=[{"accountId": "user-1", "active": True, "accountType": "atlassian"}],
+            status=200,
+        )
+
+        caplog.set_level(logging.INFO)
+        client = JiraAPIClient(**base_client_kwargs)
+        client.get_all_users(max_users=10)
+
+        assert "Found 1 users" in caplog.text
+        assert "limiting to" not in caplog.text
 
 
 def group_members(*account_ids, is_last=True):

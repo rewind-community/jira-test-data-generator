@@ -615,8 +615,14 @@ class JiraAPIClient:
             self.logger.info("Fetching users from Jira instance...")
             users = self._fetch_users_from_search(max_users)
 
-        self.logger.info(f"Found {len(users)} users")
-        return users[:max_users]
+        # A single page can overshoot max_users, so report the count actually used
+        if len(users) > max_users:
+            self.logger.info(f"Found {len(users)} users, limiting to {max_users}")
+            users = users[:max_users]
+        else:
+            self.logger.info(f"Found {len(users)} users")
+
+        return users
 
     @classmethod
     def _init_text_pool(cls) -> None:
