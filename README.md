@@ -16,6 +16,7 @@ A Python tool to generate realistic test data for Jira instances based on produc
 - **Production-Based Multipliers** - Creates realistic data distributions from CSV config
 - **Dynamic Project Creation** - Automatically creates projects based on multipliers
 - **Auto Admin Role** - Automatically grants Project Administrator role for watcher permissions
+- **User Selection** - Cap how many users are used, and limit them to specific groups
 - **Easy Cleanup** - All items tagged with searchable labels for easy JQL queries
 - **Size-Based Generation** - Supports Small/Medium/Large/XLarge instance profiles
 - **Dry Run Mode** - Preview what will be created without making changes
@@ -178,6 +179,31 @@ python jira_data_generator.py \
   --resume
 ```
 
+### Limiting Which Users Are Added
+
+By default the generator picks up to 100 users from the entire Jira user
+directory to add as project members and issue watchers. On an instance with a
+corporate directory attached, that can mean invitations going out to people who
+have nothing to do with your test data.
+
+Use `--max-users` to cap how many users are used, and `--group` to restrict the
+selection to specific groups:
+
+```bash
+python jira_data_generator.py \
+  --url https://mycompany.atlassian.net \
+  --email your.email@company.com \
+  --prefix GROUPS \
+  --count 100 \
+  --size small \
+  --max-users 5 \
+  --group test_group_one \
+  --group test_group_two
+```
+
+`--group` may be repeated. Users belonging to more than one of the given groups
+are only counted once.
+
 ## Command Line Options
 
 | Option | Required | Description | Default |
@@ -189,6 +215,8 @@ python jira_data_generator.py \
 | `--count` | Yes | Number of issues to create | - |
 | `--projects` | No | Override number of projects (issues spread evenly) | Calculated |
 | `--size` | No | Instance size bucket | `small` |
+| `--max-users` | No | Max users added as project members / issue watchers | `100` |
+| `--group` | No | Only select users from this group<br>Can be repeated | All users |
 | `--concurrency` | No | Number of concurrent API requests | `5` |
 | `--request-delay` | No | Delay between requests in seconds (0.05-0.1 recommended) | `0` |
 | `--no-async` | No | Disable async mode (sequential) | `false` |

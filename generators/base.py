@@ -45,6 +45,8 @@ class JiraAPIClient:
     _text_pool: Optional[dict[str, list[str]]] = None
     _text_pool_lock = None  # Will be initialized on first use
 
+    _USER_PAGE_SIZE = 50  # Page size when fetching users for membership/watchers
+
     # Lorem ipsum words for text generation
     _LOREM_WORDS = [
         "lorem",
@@ -515,21 +517,27 @@ class JiraAPIClient:
             return response.json().get("accountId")
         return None
 
-    def get_all_users(self, max_users: int = 100) -> list[str]:
-        """Fetch users from the Jira instance.
+    @staticmethod
+    def _is_selectable_user(user: dict) -> bool:
+        """Whether a user record should be used for project membership/watchers.
 
-        Returns a list of account IDs.
+        Filters out inactive users and app users.
         """
-        if self.dry_run:
-            return [f"dry-run-user-{i}" for i in range(1, 6)]
+        return bool(user.get("accountId")) and user.get("active", True) and user.get("accountType") == "atlassian"
 
-        self.logger.info("Fetching users from Jira instance...")
+    def _fetch_users_from_search(self, max_users: int) -> list[str]:
+        """Fetch account IDs from the whole user directory.
 
+        The users/search endpoint returns a bare JSON array (not a paginated
+        envelope), so the end of the results is detected by a short page.
+        """
         users = []
         start_at = 0
 
         while len(users) < max_users:
-            response = self._api_call("GET", "users/search", params={"startAt": start_at, "maxResults": 50})
+            response = self._api_call(
+                "GET", "users/search", params={"startAt": start_at, "maxResults": self._USER_PAGE_SIZE}
+            )
 
             if not response:
                 break
@@ -538,19 +546,83 @@ class JiraAPIClient:
             if not batch:
                 break
 
-            for user in batch:
-                account_id = user.get("accountId")
-                # Filter out inactive users and app users
-                if account_id and user.get("active", True) and user.get("accountType") == "atlassian":
-                    users.append(account_id)
+            users.extend(user["accountId"] for user in batch if self._is_selectable_user(user))
 
-            if len(batch) < 50:
+            if len(batch) < self._USER_PAGE_SIZE:
                 break
 
-            start_at += 50
+            start_at += self._USER_PAGE_SIZE
 
-        self.logger.info(f"Found {len(users)} users")
-        return users[:max_users]
+        return users
+
+    def _fetch_users_from_groups(self, groups: list[str], max_users: int) -> list[str]:
+        """Fetch account IDs from the given groups only.
+
+        Unlike users/search, group/member returns a paginated envelope, so
+        pagination is driven by ``isLast``. A user in more than one of the
+        requested groups is only returned once.
+        """
+        users = []
+        seen = set()
+
+        for group in groups:
+            if len(users) >= max_users:
+                break
+
+            start_at = 0
+
+            while len(users) < max_users:
+                response = self._api_call(
+                    "GET",
+                    "group/member",
+                    params={"groupname": group, "startAt": start_at, "maxResults": self._USER_PAGE_SIZE},
+                )
+
+                if not response:
+                    self.logger.warning(f"Could not fetch members of group '{group}' - skipping it")
+                    break
+
+                page = response.json()
+                members = page.get("values") or []
+
+                for user in members:
+                    if self._is_selectable_user(user) and user["accountId"] not in seen:
+                        seen.add(user["accountId"])
+                        users.append(user["accountId"])
+
+                if page.get("isLast", True) or not members:
+                    break
+
+                start_at += len(members)
+
+        return users
+
+    def get_all_users(self, max_users: int = 100, groups: Optional[list[str]] = None) -> list[str]:
+        """Fetch users from the Jira instance.
+
+        If ``groups`` is given, users are only drawn from those groups;
+        otherwise the entire user directory is searched.
+
+        Returns a list of account IDs.
+        """
+        if self.dry_run:
+            return [f"dry-run-user-{i}" for i in range(1, 6)]
+
+        if groups:
+            self.logger.info(f"Fetching users from groups: {', '.join(groups)}")
+            users = self._fetch_users_from_groups(groups, max_users)
+        else:
+            self.logger.info("Fetching users from Jira instance...")
+            users = self._fetch_users_from_search(max_users)
+
+        # A single page can overshoot max_users, so report the count actually used
+        if len(users) > max_users:
+            self.logger.info(f"Found {len(users)} users, limiting to {max_users}")
+            users = users[:max_users]
+        else:
+            self.logger.info(f"Found {len(users)} users")
+
+        return users
 
     @classmethod
     def _init_text_pool(cls) -> None:

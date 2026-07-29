@@ -3,6 +3,7 @@ Unit tests for generators/base.py - JiraAPIClient, RateLimitState, text pool, ra
 """
 
 import asyncio
+import logging
 import time
 from unittest.mock import MagicMock, patch
 
@@ -646,6 +647,222 @@ class TestJiraAPIClientUserMethods:
 
         # Should stop at max_users
         assert len(users) == 100
+
+    @responses.activate
+    def test_get_all_users_respects_max_users(self, base_client_kwargs):
+        """Test get_all_users caps the directory search at max_users."""
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/users/search",
+            json=[{"accountId": f"user-{i}", "active": True, "accountType": "atlassian"} for i in range(1, 51)],
+            status=200,
+        )
+
+        client = JiraAPIClient(**base_client_kwargs)
+        users = client.get_all_users(max_users=3)
+
+        assert len(users) == 3
+
+    @responses.activate
+    def test_get_all_users_logs_the_count_actually_used(self, base_client_kwargs, caplog):
+        """Test the summary log reports the capped count, not the pre-cap count.
+
+        A page can overshoot max_users, so logging len() before slicing reports
+        a number of users that were never used.
+        """
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/users/search",
+            json=[{"accountId": f"user-{i}", "active": True, "accountType": "atlassian"} for i in range(1, 51)],
+            status=200,
+        )
+
+        caplog.set_level(logging.INFO)
+        client = JiraAPIClient(**base_client_kwargs)
+        client.get_all_users(max_users=3)
+
+        assert "Found 50 users, limiting to 3" in caplog.text
+
+    @responses.activate
+    def test_get_all_users_logs_plain_count_when_not_capped(self, base_client_kwargs, caplog):
+        """Test no misleading limit message when fewer users than max_users exist."""
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/users/search",
+            json=[{"accountId": "user-1", "active": True, "accountType": "atlassian"}],
+            status=200,
+        )
+
+        caplog.set_level(logging.INFO)
+        client = JiraAPIClient(**base_client_kwargs)
+        client.get_all_users(max_users=10)
+
+        assert "Found 1 users" in caplog.text
+        assert "limiting to" not in caplog.text
+
+
+def group_members(*account_ids, is_last=True):
+    """Build a group/member paginated response envelope."""
+    return {
+        "self": f"{JIRA_URL}/rest/api/3/group/member",
+        "maxResults": 50,
+        "startAt": 0,
+        "isLast": is_last,
+        "values": [{"accountId": a, "active": True, "accountType": "atlassian"} for a in account_ids],
+    }
+
+
+class TestJiraAPIClientGroupUserSelection:
+    """Tests for restricting user selection to specific groups."""
+
+    @responses.activate
+    def test_uses_group_member_endpoint(self, base_client_kwargs):
+        """Test that passing groups queries group/member, not users/search."""
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json=group_members("user-1", "user-2"),
+            status=200,
+        )
+
+        client = JiraAPIClient(**base_client_kwargs)
+        users = client.get_all_users(max_users=10, groups=["team-a"])
+
+        assert users == ["user-1", "user-2"]
+        assert len(responses.calls) == 1
+        assert "group/member" in responses.calls[0].request.url
+        assert "groupname=team-a" in responses.calls[0].request.url
+
+    @responses.activate
+    def test_filters_inactive_and_app_users(self, base_client_kwargs):
+        """Test group members are filtered the same way directory users are."""
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json={
+                "isLast": True,
+                "values": [
+                    {"accountId": "user-1", "active": True, "accountType": "atlassian"},
+                    {"accountId": "app-user", "active": True, "accountType": "app"},
+                    {"accountId": "inactive", "active": False, "accountType": "atlassian"},
+                ],
+            },
+            status=200,
+        )
+
+        client = JiraAPIClient(**base_client_kwargs)
+        users = client.get_all_users(max_users=10, groups=["team-a"])
+
+        assert users == ["user-1"]
+
+    @responses.activate
+    def test_paginates_within_a_group(self, base_client_kwargs):
+        """Test group membership is paginated until isLast."""
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json=group_members(*[f"user-{i}" for i in range(1, 51)], is_last=False),
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json=group_members("user-51", "user-52", is_last=True),
+            status=200,
+        )
+
+        client = JiraAPIClient(**base_client_kwargs)
+        users = client.get_all_users(max_users=100, groups=["big-team"])
+
+        assert len(users) == 52
+        assert len(responses.calls) == 2
+        # Second request must advance startAt, or it would loop on page 1 forever
+        assert "startAt=50" in responses.calls[1].request.url
+
+    @responses.activate
+    def test_deduplicates_across_groups(self, base_client_kwargs):
+        """Test a user in two requested groups is only returned once."""
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json=group_members("shared", "only-a"),
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json=group_members("shared", "only-b"),
+            status=200,
+        )
+
+        client = JiraAPIClient(**base_client_kwargs)
+        users = client.get_all_users(max_users=10, groups=["team-a", "team-b"])
+
+        assert sorted(users) == ["only-a", "only-b", "shared"]
+        assert len(users) == len(set(users))
+
+    @responses.activate
+    def test_respects_max_users_across_groups(self, base_client_kwargs):
+        """Test max_users caps the total and stops querying further groups."""
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json=group_members("user-1", "user-2", "user-3"),
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json=group_members("user-4", "user-5"),
+            status=200,
+        )
+
+        client = JiraAPIClient(**base_client_kwargs)
+        users = client.get_all_users(max_users=2, groups=["team-a", "team-b"])
+
+        assert len(users) == 2
+        # Second group should never be queried - the cap was already reached
+        assert len(responses.calls) == 1
+
+    @responses.activate
+    def test_unreadable_group_is_skipped(self, base_client_kwargs):
+        """Test a missing/forbidden group does not discard the other groups."""
+        responses.add(responses.GET, f"{JIRA_URL}/rest/api/3/group/member", status=404)
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json=group_members("user-1"),
+            status=200,
+        )
+
+        client = JiraAPIClient(**base_client_kwargs)
+        users = client.get_all_users(max_users=10, groups=["typo-group", "team-b"])
+
+        assert users == ["user-1"]
+
+    @responses.activate
+    def test_empty_group_returns_no_users(self, base_client_kwargs):
+        """Test an empty group terminates instead of looping."""
+        responses.add(
+            responses.GET,
+            f"{JIRA_URL}/rest/api/3/group/member",
+            json=group_members(),
+            status=200,
+        )
+
+        client = JiraAPIClient(**base_client_kwargs)
+        users = client.get_all_users(max_users=10, groups=["empty-team"])
+
+        assert users == []
+        assert len(responses.calls) == 1
+
+    def test_groups_ignored_in_dry_run(self, dry_run_client_kwargs):
+        """Test dry run still returns placeholder users when groups are given."""
+        client = JiraAPIClient(**dry_run_client_kwargs)
+        users = client.get_all_users(max_users=10, groups=["team-a"])
+
+        assert len(users) == 5
+        assert all(u.startswith("dry-run-user-") for u in users)
 
 
 class TestJiraAPIClientAsyncRateLimiting:
