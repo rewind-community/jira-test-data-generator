@@ -1,13 +1,16 @@
 # Ruff configuration
 # https://docs.astral.sh/ruff/configuration/
 
-# Exclude virtual environments and other non-source directories
-exclude = [
-    ".git",
-    ".venv",
-    "venv",
+# `extend-exclude`, NOT `exclude`. Plain `exclude` REPLACES ruff's built-in default exclude
+# set rather than adding to it, so the previous list silently dropped all ~25 defaults
+# (.ruff_cache, .mypy_cache, dist, node_modules, .tox, .venv, site-packages …) and would have
+# linted any of them the moment it appeared. `.git`, `.venv` and `venv` were themselves already
+# defaults, so naming them bought nothing while discarding the rest. `__pycache__` holds only
+# .pyc files, which are not in ruff's include set, so it was never doing anything either.
+extend-exclude = [
+    # Vendored dependencies — not ours to lint, and ~580 Python files. `lib` is NOT one of
+    # ruff's defaults, so it has to stay named explicitly here.
     "lib",
-    "__pycache__",
     # ruff 0.16+ formats Python code blocks inside Markdown. Keep ruff scoped to
     # Python sources so prose docs aren't reformatted.
     "*.md",
